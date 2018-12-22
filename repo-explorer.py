@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import argparse
 import configparser
+import difflib
 import pathlib
 import json
 import sys
@@ -10,6 +11,11 @@ class Analyzer:
     repo_dir = "."
     config = None
     data = {}
+    differ = None
+    def __init__(self, path="."):
+        self.repo_dir = path
+        self.differ = difflib.Differ()
+
     def loadConfigs(self, path):
         config = configparser.ConfigParser()
         config.read(path)
@@ -35,11 +41,43 @@ class Analyzer:
 
         self.data = data
 
+    def getDiffStats(self, commit):
+        files = {}
+        for change in commit.diff():
+            files[change.b_path] = {"add": 0, "del": 0, "type": "A"}
+            files[change.b_path]['type'] = change.change_type
+            try:
+                orig = change.a_blob.data_stream.read().decode('utf-8').splitlines(1)
+                new = change.b_blob.data_stream.read().decode('utf-8').splitlines(1)
+                for diff in list(self.differ.compare(orig, new)):
+                    if diff.startswith('+'):
+                        files[change.b_path]['add'] += 1
+                    elif diff.startswith('-'):
+                        files[change.b_path]['del'] += 1
+            except:
+                pass
+        return files
+
     def loadLiveData(self):
-        pass
+        repo = git.Repo(self.repo_dir)
+
+        data = {"authors": {}, "commits": {}, "files": {}}
+        commits = {}
+        for commit in repo.iter_commits():
+            tmp_commit_data = {
+                "author": commit.author,
+                "files": {},
+                "date": "unknown"
+            }
+            tmp_commit_data['files'] = self.getDiffStats(commit)
+            commits[str(commit)] = tmp_commit_data
+
+        data['commits'] = commits
+
+        return data
 
     def doAnalysis(self):
-        pass
+        print(self.data)
 
     def output(self):
         pass
@@ -54,5 +92,5 @@ class Analyzer:
 
 analyzer = Analyzer()
 analyzer.loadConfigs("conf/repo-explorer.ini")
-analyzer.collectData(from_cache=True)
+analyzer.collectData()
 analyzer.doAnalysis()

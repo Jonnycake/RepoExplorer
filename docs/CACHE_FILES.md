@@ -30,7 +30,7 @@ The pre-compression JSON format is as follows:
                 "impact": {
                     "add": <int number of additions>,
                     "del": <int number of deletions>                }
-                
+                }
             }
         },
         "files": {
