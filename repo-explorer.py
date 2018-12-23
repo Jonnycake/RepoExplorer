@@ -12,6 +12,7 @@ class Analyzer:
     config = None
     data = {}
     differ = None
+    stats = {}
     def __init__(self, path="."):
         self.repo_dir = path
         self.differ = difflib.Differ()
@@ -35,15 +36,17 @@ class Analyzer:
                 with open(cache_file, "r") as f:
                     data = json.load(f)
             except:
+                # @todo Do something with the error
                 print(sys.exc_info()[0])
         else:
             data = self.loadLiveData()
 
         self.data = data
 
-    def getDiffStats(self, commit):
+    def getDiffStats(self, commit, last_commit):
         files = {}
-        for change in commit.diff():
+        commit_diff = last_commit.diff(commit) if last_commit != git.NULL_TREE else commit.diff(last_commit)
+        for change in commit_diff:
             files[change.b_path] = {"add": 0, "del": 0, "type": "A"}
             files[change.b_path]['type'] = change.change_type
             try:
@@ -55,6 +58,7 @@ class Analyzer:
                     elif diff.startswith('-'):
                         files[change.b_path]['del'] += 1
             except:
+                # @todo Do something with the error
                 pass
         return files
 
@@ -63,21 +67,54 @@ class Analyzer:
 
         data = {"authors": {}, "commits": {}, "files": {}}
         commits = {}
-        for commit in repo.iter_commits():
+        last_commit = git.NULL_TREE
+        for commit in list(repo.iter_commits())[::-1]:
             tmp_commit_data = {
-                "author": commit.author,
+                "author": commit.author.name,
                 "files": {},
                 "date": "unknown"
             }
-            tmp_commit_data['files'] = self.getDiffStats(commit)
+            tmp_commit_data['files'] = self.getDiffStats(commit, last_commit)
             commits[str(commit)] = tmp_commit_data
+            last_commit = commit
 
         data['commits'] = commits
+        with open("repo-explorer.cache", "w") as f:
+            f.write(json.dumps(data))
 
         return data
 
     def doAnalysis(self):
-        print(self.data)
+        self.stats['basic'] = self.aggregateBasicInfo()
+
+        if self.config.getboolean('General', 'dependency_analysis'):
+            self.stats['dependencies'] = self.inferDependencies()
+
+    def inferDependencies(self):
+        threshold = int(self.config.get('Dependency Analysis', 'threshold'))
+
+        commit_hashes = list(self.data['commits'].keys())
+        if self.config.getboolean('Dependency Analysis', 'ignore_first_commit'):
+                commit_hashes = commit_hashes[1:]
+        commits = self.data['commits']
+
+        file_relations = {}
+        for commit in commit_hashes:
+            for file in commits[commit]['files']:
+                if file not in file_relations:
+                    file_relations[file] = {}
+
+                for related_file in commits[commit]['files']:
+                    if related_file != file:
+                        file_relations[file][related_file] = 1 if related_file not in file_relations[file] else file_relations[file][related_file] + 1
+                        if related_file not in file_relations:
+                            file_relations[related_file] = {file: 1}
+                        elif file not in file_relations[related_file]:
+                                file_relations[related_file][file] = 1
+                        else:
+                            file_relations[related_file][file] += 1
+
+        print("Last commit: %s" % (commit))
 
     def output(self):
         pass
@@ -88,9 +125,15 @@ class Analyzer:
             First commit date & Author
             Last commit date & Author
         """
-        pass
+        basic_stats = {"total": 0, "first":{}, "last": {}}
+        basic_stats['total'] = len(self.data['commits'].keys())
 
-analyzer = Analyzer()
+        return basic_stats
+
+analyzer = Analyzer("/Users/jonst/Desktop/projects/SimpleSite/")
+print("Loading configurations...")
 analyzer.loadConfigs("conf/repo-explorer.ini")
+print("Collecting data...")
 analyzer.collectData()
+print("Performing analysis...")
 analyzer.doAnalysis()
