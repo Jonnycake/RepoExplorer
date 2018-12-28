@@ -5,6 +5,7 @@ import difflib
 import pathlib
 import json
 import sys
+import os
 import git
 
 class Analyzer:
@@ -13,6 +14,8 @@ class Analyzer:
     data = {}
     differ = None
     stats = {}
+    structure = {}
+
     def __init__(self, path="."):
         self.repo_dir = path
         self.differ = difflib.Differ()
@@ -21,6 +24,7 @@ class Analyzer:
         config = configparser.ConfigParser()
         config.read(path)
         self.config = config
+
 
     def collectData(self, from_cache=False):
         """
@@ -45,21 +49,36 @@ class Analyzer:
 
     def getDiffStats(self, commit, last_commit):
         files = {}
+        commit_file_limit = int(self.config.get('Data Collection', 'commit_file_limit'))
         commit_diff = last_commit.diff(commit) if last_commit != git.NULL_TREE else commit.diff(last_commit)
+
+        if commit_file_limit != -1 and len(commit_diff) > commit_file_limit:
+            return None
+
         for change in commit_diff:
-            files[change.b_path] = {"add": 0, "del": 0, "type": "A"}
+            files[change.b_path] = {"add": None, "del": None, "type": "A", "diff": None}
             files[change.b_path]['type'] = change.change_type
-            try:
-                orig = change.a_blob.data_stream.read().decode('utf-8').splitlines(1)
-                new = change.b_blob.data_stream.read().decode('utf-8').splitlines(1)
-                for diff in list(self.differ.compare(orig, new)):
-                    if diff.startswith('+'):
-                        files[change.b_path]['add'] += 1
-                    elif diff.startswith('-'):
-                        files[change.b_path]['del'] += 1
-            except:
-                # @todo Do something with the error
-                pass
+            if self.config.getboolean('Data Collection', 'impact_stats'):
+                try:
+                    # Probably want to maintain previous path info too...
+                    files[change.b_path]['add'] = 0
+                    files[change.b_path]['del'] = 0
+
+                    orig = change.a_blob.data_stream.read().decode('utf-8').splitlines(1)
+                    new = change.b_blob.data_stream.read().decode('utf-8').splitlines(1)
+                    diffed = list(self.differ.compare(orig, new))
+
+                    for diff in diffed:
+                        if diff.startswith('+'):
+                            files[change.b_path]['add'] += 1
+                        elif diff.startswith('-'):
+                            files[change.b_path]['del'] += 1
+
+                    if self.config.getboolean('Data Collection', 'full_diff'):
+                        files[change.b_path]['diff'] = "\n".join(diffed)
+                except:
+                    # @todo Do something with the error
+                    pass
         return files
 
     def loadLiveData(self):
@@ -79,16 +98,76 @@ class Analyzer:
             last_commit = commit
 
         data['commits'] = commits
-        with open("repo-explorer.cache", "w") as f:
-            f.write(json.dumps(data))
+
+        if self.config.getboolean('General', 'enable_cache'):
+            with open("repo-explorer.cache", "w") as f:
+                f.write(json.dumps(data))
 
         return data
 
     def doAnalysis(self):
         self.stats['basic'] = self.aggregateBasicInfo()
 
+        if self.config.getboolean('General', 'structure_location'):
+            print("\tFinding structures...")
+            self.stats['structures'] = self.findStructures()
+
         if self.config.getboolean('General', 'dependency_analysis'):
+            print("\tInferring dependencies...")
             self.stats['dependencies'] = self.inferDependencies()
+
+    def findStructures(self):
+        doc_dirs = self.config.get('Structure Location', 'doc_dirs').split(',')
+        include_dirs = self.config.get('Structure Location', 'include_dirs').split(',')
+        src_dirs = self.config.get('Structure Location', 'src_dirs').split(',')
+        test_dirs = self.config.get('Structure Location', 'test_dirs').split(',')
+        vendor_dirs = self.config.get('Structure Location', 'vendor_dirs').split(',')
+        useful_files = self.config.get('Structure Location', 'useful_files').split(',')
+
+        structures = {'docs': [], 'includes': [], 'sources': [], 'tests': [], 'vendor code': [], 'references': []}
+        walked = []
+
+        # We can probably find structures as we walk....
+        for root, dirs, files in os.walk(self.repo_dir):
+            dirs[:] = [d for d in dirs if d != '.git']
+            walked.append((root, dirs, files))
+
+        # First we must find and exclude vendor code (which may have it's own structures)
+        for root, dirs, files in walked:
+            vendor_code = list(set(vendor_dirs) & set(dirs))
+            structures['vendor code'] += [os.path.join(root, dir) for dir in vendor_code]
+
+        non_vendor_paths = []
+        for root, dirs, files in walked:
+            is_vendor = False
+
+            for vendor_dir in structures['vendor code']:
+                if not os.path.relpath(root, vendor_dir).startswith('..'):
+                    is_vendor = True
+                    break
+
+            if not is_vendor:
+                non_vendor_paths.append((root, dirs, files))
+
+        # Then we can continue locating the relevant structures
+        for root, dirs, files in non_vendor_paths:
+            # doc, include, src, test & useful_files
+            docs = list(set(doc_dirs) & set(dirs))
+            structures['docs'] += [os.path.join(root, d) for d in docs]
+
+            includes = list(set(include_dirs) & set(dirs))
+            structures['includes'] += [os.path.join(root, d) for d in includes]
+
+            sources = list(set(src_dirs) & set(dirs))
+            structures['sources'] += [os.path.join(root, d) for d in sources]
+
+            tests = list(set(test_dirs) & set(dirs))
+            structures['tests'] += [os.path.join(root, d) for d in tests]
+
+            references = list(set(useful_files) & set(files))
+            structures['references'] += [os.path.join(root, d) for d in references]
+
+        return structures
 
     def inferDependencies(self):
         threshold = int(self.config.get('Dependency Analysis', 'threshold'))
@@ -98,13 +177,26 @@ class Analyzer:
                 commit_hashes = commit_hashes[1:]
         commits = self.data['commits']
 
+        ignored_extensions = self.config.get('Dependency Analysis', 'ignore_extensions').split(",")
+
+        # This is uglyyyyy
         file_relations = {}
         for commit in commit_hashes:
+            # Commit had too many files, not usable for dependency analysis
+            if commits[commit]['files'] is None:
+                continue
+
             for file in commits[commit]['files']:
+                if file.endswith(tuple(ignored_extensions)):
+                    continue
+
                 if file not in file_relations:
                     file_relations[file] = {}
 
                 for related_file in commits[commit]['files']:
+                    if related_file.endswith(tuple(ignored_extensions)):
+                        continue
+
                     if related_file != file:
                         file_relations[file][related_file] = 1 if related_file not in file_relations[file] else file_relations[file][related_file] + 1
                         if related_file not in file_relations:
@@ -114,7 +206,11 @@ class Analyzer:
                         else:
                             file_relations[related_file][file] += 1
 
-        print("Last commit: %s" % (commit))
+        for file in file_relations:
+            file_relations[file] = {k:v for (k, v) in file_relations[file].items() if v > threshold}
+
+        print(file_relations)
+        return file_relations
 
     def output(self):
         pass
@@ -126,11 +222,14 @@ class Analyzer:
             Last commit date & Author
         """
         basic_stats = {"total": 0, "first":{}, "last": {}}
-        basic_stats['total'] = len(self.data['commits'].keys())
-
+        commit_hashes = list(self.data['commits'].keys())
+        basic_stats['total'] = len(commit_hashes)
+        basic_stats['first'] = {commit_hashes[0]: self.data['commits'][commit_hashes[0]]}
+        basic_stats['last'] = {commit_hashes[-1]: self.data['commits'][commit_hashes[-1]]}
         return basic_stats
 
-analyzer = Analyzer("/Users/jonst/Desktop/projects/SimpleSite/")
+print("Creating the analyzer...")
+analyzer = Analyzer("C:\\Users\\jonst\\Desktop\\projects\\yii\\")
 print("Loading configurations...")
 analyzer.loadConfigs("conf/repo-explorer.ini")
 print("Collecting data...")
