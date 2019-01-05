@@ -7,24 +7,30 @@ import json
 import sys
 import os
 import git
+import pprint
+import time
 
 class Analyzer:
+    # Can be customized via command line
+    cache_file=None
     repo_dir = "."
     config = None
     data = {}
     differ = None
     stats = {}
     structure = {}
+    cache_enabled = False
 
-    def __init__(self, path="."):
+    def __init__(self, path=".", enable_cache=False):
         self.repo_dir = path
         self.differ = difflib.Differ()
+        self.cache_enabled = enable_cache
 
     def loadConfigs(self, path):
         config = configparser.ConfigParser()
         config.read(path)
         self.config = config
-
+        self.cache_file = pathlib.Path("%s/%s" % (self.repo_dir, self.config.get('Caching', 'cache_file')))
 
     def collectData(self, from_cache=False):
         """
@@ -34,18 +40,25 @@ class Analyzer:
             For each file - identify file type and the current content
         """
         data = {}
-        cache_path = pathlib.Path("%s/%s" % (self.repo_dir, self.config.get('Caching', 'cache_file')))
+        cache_path = self.cache_file
         if from_cache and cache_path.is_file():
+            print("\tLoading from cache (%s)..." % (cache_path))
             try:
-                with open(cache_file, "r") as f:
+                with open(cache_path, "r") as f:
                     data = json.load(f)
             except:
                 # @todo Do something with the error
                 print(sys.exc_info()[0])
         else:
+            print("\tLoading live data...")
             data = self.loadLiveData()
 
         self.data = data
+
+        if self.cache_enabled:
+            print("\tWriting cache file '%s'..." % (cache_path))
+            with open(cache_path, "w") as f:
+                f.write(json.dumps(self.data))
 
     def getDiffStats(self, commit, last_commit):
         files = {}
@@ -56,6 +69,9 @@ class Analyzer:
             return None
 
         for change in commit_diff:
+            #if change.b_path in self.data['files']:
+            #    self.data['files'][change.b_path] += 1
+
             files[change.b_path] = {"add": None, "del": None, "type": "A", "diff": None}
             files[change.b_path]['type'] = change.change_type
             if self.config.getboolean('Data Collection', 'impact_stats'):
@@ -76,9 +92,11 @@ class Analyzer:
 
                     if self.config.getboolean('Data Collection', 'full_diff'):
                         files[change.b_path]['diff'] = "\n".join(diffed)
+
                 except:
                     # @todo Do something with the error
                     pass
+
         return files
 
     def loadLiveData(self):
@@ -87,7 +105,19 @@ class Analyzer:
         data = {"authors": {}, "commits": {}, "files": {}}
         commits = {}
         last_commit = git.NULL_TREE
+        total_commits = len(list(repo.iter_commits()))
+        complete_update = total_commits / 10
+        commits_completed = 0
+        a_time = time.time()
         for commit in list(repo.iter_commits())[::-1]:
+            if not commits_completed % complete_update:
+                print("\t\tCommits Complete: %d / %d" % (commits_completed, total_commits))
+
+            commits_completed += 1
+            # Ignore merge commits (commits with > 1 parent)
+            if len(commit.parents) > 1:
+                continue
+
             tmp_commit_data = {
                 "author": commit.author.name,
                 "files": {},
@@ -96,6 +126,9 @@ class Analyzer:
             tmp_commit_data['files'] = self.getDiffStats(commit, last_commit)
             commits[str(commit)] = tmp_commit_data
             last_commit = commit
+            if time.time() - a_time > 60:
+                print("\t\tMinutely Update: Commits Complete: %d / %d" % (commits_completed, total_commits))
+                a_time = time.time()
 
         data['commits'] = commits
 
@@ -116,7 +149,22 @@ class Analyzer:
             print("\tInferring dependencies...")
             self.stats['dependencies'] = self.inferDependencies()
 
+        if self.config.getboolean('General', 'most_changed'):
+            print("\tFinding most changed file(s)...")
+            self.stats['most_changed'] = self.findMostChanged()
+
+        if self.config.getboolean('General', 'top_contributor'):
+            print("\tFinding top contributor(s)...")
+            self.stats['top_contributor'] = self.findTopContributor()
+
+    def findMostChanged(self):
+        pass
+
+    def findTopContributor(self):
+        pass
+
     def findStructures(self):
+        # Load the structure location configs
         doc_dirs = self.config.get('Structure Location', 'doc_dirs').split(',')
         include_dirs = self.config.get('Structure Location', 'include_dirs').split(',')
         src_dirs = self.config.get('Structure Location', 'src_dirs').split(',')
@@ -170,22 +218,29 @@ class Analyzer:
         return structures
 
     def inferDependencies(self):
+        # Get the threshold config value
         threshold = int(self.config.get('Dependency Analysis', 'threshold'))
 
+        # Ignore the first commit
         commit_hashes = list(self.data['commits'].keys())
         if self.config.getboolean('Dependency Analysis', 'ignore_first_commit'):
-                commit_hashes = commit_hashes[1:]
-        commits = self.data['commits']
+            commit_hashes = commit_hashes[1:]
 
+        # Ignore particular extensions
         ignored_extensions = self.config.get('Dependency Analysis', 'ignore_extensions').split(",")
 
-        # This is uglyyyyy
+        commits = self.data['commits']
+
+
+        # Look at each commit one by one and record what files are together
         file_relations = {}
         for commit in commit_hashes:
             # Commit had too many files, not usable for dependency analysis
             if commits[commit]['files'] is None:
                 continue
 
+            # This looks ugly...we can probably simplify it
+            # @todo Ignore identified structures
             for file in commits[commit]['files']:
                 if file.endswith(tuple(ignored_extensions)):
                     continue
@@ -199,6 +254,7 @@ class Analyzer:
 
                     if related_file != file:
                         file_relations[file][related_file] = 1 if related_file not in file_relations[file] else file_relations[file][related_file] + 1
+
                         if related_file not in file_relations:
                             file_relations[related_file] = {file: 1}
                         elif file not in file_relations[related_file]:
@@ -206,14 +262,19 @@ class Analyzer:
                         else:
                             file_relations[related_file][file] += 1
 
+        # Limit it to only files with relationships above the threshold
         for file in file_relations:
             file_relations[file] = {k:v for (k, v) in file_relations[file].items() if v > threshold}
 
-        print(file_relations)
         return file_relations
 
-    def output(self):
-        pass
+    def output(self, file=False, filename=""):
+        if file and len(filename):
+            with open(filename, "w") as f:
+                f.write(json.dumps(self.stats))
+        else:
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(self.stats)
 
     def aggregateBasicInfo(self):
         """
@@ -228,11 +289,29 @@ class Analyzer:
         basic_stats['last'] = {commit_hashes[-1]: self.data['commits'][commit_hashes[-1]]}
         return basic_stats
 
+argparser = argparse.ArgumentParser(description="Analyze a git repo for useful information.")
+argparser.add_argument("repo_path", help="Repo location", type=str)
+argparser.add_argument("-i", "--ini_file", help="Config file location.", type=str, required=True)
+argparser.add_argument("-o", "--output_file", help="Output file location.", type=str, default="repo-explorer.out")
+argparser.add_argument("-c", "--cache_file", help="Cache file location.", type=str, default=None)
+argparser.add_argument("-C", "--enable_cache", help="Enable caching.", action="store_true")
+argparser.add_argument("-L", "--load_cache", help="Load from cache.", action="store_true")
+argparser.add_argument("-e", "--ignore_extensions", help="Add ignored file extensions.", type=str)
+argparser.add_argument("-F", "--to_file", help="Write output to file.", action="store_true")
+args = argparser.parse_args()
+
 print("Creating the analyzer...")
-analyzer = Analyzer("C:\\Users\\jonst\\Desktop\\projects\\yii\\")
+analyzer = Analyzer(path=args.repo_path, enable_cache=args.enable_cache)
 print("Loading configurations...")
-analyzer.loadConfigs("conf/repo-explorer.ini")
+analyzer.loadConfigs(args.ini_file)
+
+if args.cache_file is not None:
+    analyzer.cache_file = pathlib.Path(args.cache_file)
+
 print("Collecting data...")
-analyzer.collectData()
+analyzer.collectData(args.load_cache)
 print("Performing analysis...")
 analyzer.doAnalysis()
+
+analyzer.output(file=args.to_file, filename=args.output_file)
+

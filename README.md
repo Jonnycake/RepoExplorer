@@ -82,4 +82,5 @@ Just a simple list of what programming languages were used in the project.
 ### Commit Message Analysis
 
 Commit messages may help give some context into what the change was in response
-to - was it a bugfix, enhancement, or a brand new feature?
+to - was it a bugfix, enhancement, or a brand new feature?  It may also allow
+us to link multiple commits together to better determine dependencies.
