@@ -110,14 +110,16 @@ class Analyzer:
         commits_completed = 0
         a_time = time.time()
         for commit in list(repo.iter_commits())[::-1]:
+            # Progress updates every ~10%
             if not commits_completed % complete_update:
                 print("\t\tCommits Complete: %d / %d (~%d%%)" % (commits_completed, total_commits, (commits_completed/total_commits*100)))
-
             commits_completed += 1
+
             # Ignore merge commits (commits with > 1 parent)
             if len(commit.parents) > 1:
                 continue
 
+            # Basic information
             tmp_commit_data = {
                 "author": commit.author.name,
                 "files": {},
@@ -126,6 +128,8 @@ class Analyzer:
             tmp_commit_data['files'] = self.getDiffStats(commit, last_commit)
             commits[str(commit)] = tmp_commit_data
             last_commit = commit
+            data['authors'][commit.author.name] = 1 if commit.author.name not in data['authors'] else data['authors'][commit.author.name] + 1
+
             if time.time() - a_time > 60:
                 print("\t\tMinutely Update: Commits Complete: %d / %d (~%d%%)" % (commits_completed, total_commits, (commits_completed/total_commits*100)))
                 a_time = time.time()
@@ -157,7 +161,13 @@ class Analyzer:
         pass
 
     def findTopContributor(self):
-        pass
+        sorted_authors = sorted(self.data['authors'].keys(), key=lambda k: self.data['authors'][k], reverse=True)
+        top_contributors = []
+
+        for author in sorted_authors:
+            top_contributors.append((author, self.data['authors'][author]))
+
+        return top_contributors[:int(self.config.get('Top Contributor', 'limit'))]
 
     def findStructures(self):
         # Load the structure location configs
