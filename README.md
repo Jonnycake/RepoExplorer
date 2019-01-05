@@ -49,6 +49,10 @@ perspective as files with a large number of dependencies can indicate poor
 encapsulation.
 
 # Future Goals
+
+Just some of my ideas for future enhancements, not sure all (or any) of them
+will get completed, but they seem like they'd be useful.
+
 ## Static Code Analysis
 ### Break Checks
 
