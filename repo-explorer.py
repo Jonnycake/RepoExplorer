@@ -245,6 +245,9 @@ class Analyzer:
                 if file.endswith(tuple(ignored_extensions)):
                     continue
 
+                if not pathlib.Path(os.path.join(self.repo_dir, file)).exists():
+                    continue
+
                 if file not in file_relations:
                     file_relations[file] = {}
 
@@ -252,15 +255,20 @@ class Analyzer:
                     if related_file.endswith(tuple(ignored_extensions)):
                         continue
 
-                    if related_file != file:
-                        file_relations[file][related_file] = 1 if related_file not in file_relations[file] else file_relations[file][related_file] + 1
+                    if not pathlib.Path(os.path.join(self.repo_dir, related_file)).exists():
+                        continue
 
-                        if related_file not in file_relations:
-                            file_relations[related_file] = {file: 1}
-                        elif file not in file_relations[related_file]:
-                                file_relations[related_file][file] = 1
-                        else:
-                            file_relations[related_file][file] += 1
+                    if related_file == file:
+                        continue
+
+                    file_relations[file][related_file] = 1 if related_file not in file_relations[file] else file_relations[file][related_file] + 1
+
+                    if related_file not in file_relations:
+                        file_relations[related_file] = {file: 1}
+                    elif file not in file_relations[related_file]:
+                        file_relations[related_file][file] = 1
+                    else:
+                        file_relations[related_file][file] += 1
 
         # Limit it to only files with relationships above the threshold
         for file in file_relations:
@@ -302,14 +310,15 @@ args = argparser.parse_args()
 
 print("Creating the analyzer...")
 analyzer = Analyzer(path=args.repo_path, enable_cache=args.enable_cache)
+
 print("Loading configurations...")
 analyzer.loadConfigs(args.ini_file)
-
 if args.cache_file is not None:
     analyzer.cache_file = pathlib.Path(args.cache_file)
 
 print("Collecting data...")
 analyzer.collectData(args.load_cache)
+
 print("Performing analysis...")
 analyzer.doAnalysis()
 
