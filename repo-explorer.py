@@ -110,8 +110,6 @@ class Analyzer:
         commits_completed = 0
         a_time = time.time()
         for commit in list(repo.iter_commits())[::-1]:
-            # @todo Why is this not working? o.O I double checked and this definitely should get 0...
-            #         In fact....it says the 0/X message....
             if not commits_completed % complete_update:
                 print("\t\tCommits Complete: %d / %d (~%d%%)" % (commits_completed, total_commits, (commits_completed/total_commits*100)))
 
