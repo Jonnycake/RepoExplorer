@@ -106,12 +106,14 @@ class Analyzer:
         commits = {}
         last_commit = git.NULL_TREE
         total_commits = len(list(repo.iter_commits()))
-        complete_update = total_commits / 10
+        complete_update = int(total_commits / 10)
         commits_completed = 0
         a_time = time.time()
         for commit in list(repo.iter_commits())[::-1]:
+            # @todo Why is this not working? o.O I double checked and this definitely should get 0...
+            #         In fact....it says the 0/X message....
             if not commits_completed % complete_update:
-                print("\t\tCommits Complete: %d / %d" % (commits_completed, total_commits))
+                print("\t\tCommits Complete: %d / %d (~%d%%)" % (commits_completed, total_commits, (commits_completed/total_commits*100)))
 
             commits_completed += 1
             # Ignore merge commits (commits with > 1 parent)
@@ -127,14 +129,10 @@ class Analyzer:
             commits[str(commit)] = tmp_commit_data
             last_commit = commit
             if time.time() - a_time > 60:
-                print("\t\tMinutely Update: Commits Complete: %d / %d" % (commits_completed, total_commits))
+                print("\t\tMinutely Update: Commits Complete: %d / %d (~%d%%)" % (commits_completed, total_commits, (commits_completed/total_commits*100)))
                 a_time = time.time()
 
         data['commits'] = commits
-
-        if self.config.getboolean('General', 'enable_cache'):
-            with open("repo-explorer.cache", "w") as f:
-                f.write(json.dumps(data))
 
         return data
 
@@ -201,19 +199,19 @@ class Analyzer:
         for root, dirs, files in non_vendor_paths:
             # doc, include, src, test & useful_files
             docs = list(set(doc_dirs) & set(dirs))
-            structures['docs'] += [os.path.join(root, d) for d in docs]
+            structures['docs'] += [os.path.relpath(os.path.join(root, d), self.repo_dir) for d in docs]
 
             includes = list(set(include_dirs) & set(dirs))
-            structures['includes'] += [os.path.join(root, d) for d in includes]
+            structures['includes'] += [os.path.relpath(os.path.join(root, d), self.repo_dir) for d in includes]
 
             sources = list(set(src_dirs) & set(dirs))
-            structures['sources'] += [os.path.join(root, d) for d in sources]
+            structures['sources'] += [os.path.relpath(os.path.join(root, d), self.repo_dir) for d in sources]
 
             tests = list(set(test_dirs) & set(dirs))
-            structures['tests'] += [os.path.join(root, d) for d in tests]
+            structures['tests'] += [os.path.relpath(os.path.join(root, d), self.repo_dir) for d in tests]
 
             references = list(set(useful_files) & set(files))
-            structures['references'] += [os.path.join(root, d) for d in references]
+            structures['references'] += [os.path.relpath(os.path.join(root, d), self.repo_dir) for d in references]
 
         return structures
 
@@ -231,6 +229,15 @@ class Analyzer:
 
         commits = self.data['commits']
 
+        ignored_dirs = []
+        ignored_files = []
+        if 'structures' in self.stats:
+            ignored_dirs = self.stats['structures']['docs'] \
+                + self.stats['structures']['tests'] \
+                + self.stats['structures']['references']
+            ignored_files = self.stats['structures']['references']
+
+        print("\t\t...maybe ignoring directories: %s" % (", ".join(ignored_dirs)))
 
         # Look at each commit one by one and record what files are together
         file_relations = {}
@@ -240,9 +247,14 @@ class Analyzer:
                 continue
 
             # This looks ugly...we can probably simplify it
-            # @todo Ignore identified structures
             for file in commits[commit]['files']:
                 if file.endswith(tuple(ignored_extensions)):
+                    continue
+
+                if file.startswith(tuple(ignored_dirs)):
+                    continue
+
+                if file in ignored_files:
                     continue
 
                 if not pathlib.Path(os.path.join(self.repo_dir, file)).exists():
@@ -253,6 +265,12 @@ class Analyzer:
 
                 for related_file in commits[commit]['files']:
                     if related_file.endswith(tuple(ignored_extensions)):
+                        continue
+
+                    if related_file.startswith(tuple(ignored_dirs)):
+                        continue
+
+                    if related_file in ignored_files:
                         continue
 
                     if not pathlib.Path(os.path.join(self.repo_dir, related_file)).exists():
