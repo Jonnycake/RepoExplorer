@@ -24,11 +24,12 @@ import git
 import pprint
 import time
 
-class Analyzer:
+class Explorer:
     repo_dir = "."
     config = None
     data = {}
     differ = None
+    file = {}
     stats = {}
     structure = {}
 
@@ -46,6 +47,12 @@ class Analyzer:
         config.read(path)
         self.config = config
         self.cache_file = pathlib.Path("%s/%s" % (self.repo_dir, self.config.get('Caching', 'cache_file')))
+
+    def keepFileStats(self, change):
+        if change.change_type == "A":
+            return
+        return
+
 
     def collectData(self, from_cache=False):
         """
@@ -89,6 +96,7 @@ class Analyzer:
 
             files[change.b_path] = {"add": None, "del": None, "type": "A", "diff": None}
             files[change.b_path]['type'] = change.change_type
+            self.keepFileStats(change)
             if self.config.getboolean('Data Collection', 'impact_stats'):
                 try:
                     # Probably want to maintain previous path info too...
@@ -153,7 +161,7 @@ class Analyzer:
 
         return data
 
-    def doAnalysis(self):
+    def explore(self):
         self.stats['basic'] = self.aggregateBasicInfo()
 
         if self.config.getboolean('General', 'structure_location'):

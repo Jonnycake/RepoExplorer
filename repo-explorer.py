@@ -17,7 +17,7 @@
 import argparse
 import pathlib
 import time
-import Analyzer
+import Explorer
 
 # @todo Make argument groups...
 argparser = argparse.ArgumentParser(description="Analyze a git repo for useful information.")
@@ -39,19 +39,19 @@ argparser.add_argument("-T", "--tops", help="Enable top contributor and most cha
 args = argparser.parse_args()
 
 start_time = time.time()
-print("Creating the analyzer...")
-analyzer = Analyzer.Analyzer(path=args.repo_path, enable_cache=args.enable_cache)
+print("Creating the explorer...")
+explorer = Explorer.Explorer(path=args.repo_path, enable_cache=args.enable_cache)
 
 print("Loading configurations...")
-analyzer.loadConfigs(args.ini_file)
+explorer.loadConfigs(args.ini_file)
 if args.cache_file is not None:
-    analyzer.cache_file = pathlib.Path(args.cache_file)
+    explorer.cache_file = pathlib.Path(args.cache_file)
 
 print("Collecting data...")
-analyzer.collectData(args.load_cache)
+explorer.collectData(args.load_cache)
 print("\tData collection completed in %d seconds." % (time.time()-start_time))
-print("Performing analysis...")
-analyzer.doAnalysis()
+print("Exploring...")
+explorer.explore()
 print("Full process complete in %d seconds." % (time.time()-start_time))
-analyzer.output(file=args.to_file, filename=args.output_file)
+explorer.output(file=args.to_file, filename=args.output_file)
 
