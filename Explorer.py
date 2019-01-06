@@ -32,20 +32,23 @@ class Explorer:
     stats = {}
     structure = {}
 
-    # Can be customized via command line so they require their own properties
-    cache_file=None
-    cache_enabled = False
-
-    def __init__(self, path=".", enable_cache=False):
+    def __init__(self, path="."):
         self.repo_dir = path
         self.differ = difflib.Differ()
-        self.cache_enabled = enable_cache
+
+    def setConfig(self, config_group, config, value):
+        self.config.set(config_group, config, value)
+
+    def getConfig(self, config_group, config):
+        return self.config.get(config_group, config)
 
     def loadConfigs(self, path):
         config = configparser.ConfigParser()
         config.read(path)
         self.config = config
-        self.cache_file = pathlib.Path("%s/%s" % (self.repo_dir, self.config.get('Caching', 'cache_file')))
+
+        # We want to store the cache file in the relevant repo unless directed otherwise
+        self.config.set('Caching', 'cache_file', ("%s/%s" % (self.repo_dir, self.config.get('Caching', 'cache_file'))))
 
     def keepFileStats(self, change, change_info):
         if "files" not in self.data:
@@ -93,7 +96,7 @@ class Explorer:
             For each file - identify file type and the current content
         """
         data = {}
-        cache_path = self.cache_file
+        cache_path = pathlib.Path(self.config.get('Caching', 'cache_file'))
         if from_cache and cache_path.is_file():
             print("\tLoading from cache (%s)..." % (cache_path))
             try:
@@ -110,7 +113,7 @@ class Explorer:
         data['files'] = self.data['files']
         self.data = data
 
-        if self.cache_enabled:
+        if self.config.getboolean('General', 'enable_cache'):
             print("\tWriting cache file '%s'..." % (cache_path))
             with open(cache_path, "w") as f:
                 f.write(json.dumps(self.data))
@@ -212,7 +215,7 @@ class Explorer:
             print("\tFinding structures...")
             self.stats['structures'] = self.findStructures()
 
-        if self.config.getboolean('General', 'dependency_analysis'):
+        if self.config.getboolean('General', 'dependency_inference'):
             print("\tInferring dependencies...")
             self.stats['dependencies'] = self.inferDependencies()
 
@@ -300,15 +303,15 @@ class Explorer:
 
     def inferDependencies(self):
         # Get the threshold config value
-        threshold = int(self.config.get('Dependency Analysis', 'threshold'))
+        threshold = int(self.config.get('Dependency Inference', 'threshold'))
 
         # Ignore the first commit
         commit_hashes = list(self.data['commits'].keys())
-        if self.config.getboolean('Dependency Analysis', 'ignore_first_commit'):
+        if self.config.getboolean('Dependency Inference', 'ignore_first_commit'):
             commit_hashes = commit_hashes[1:]
 
         # Ignore particular extensions
-        ignored_extensions = self.config.get('Dependency Analysis', 'ignore_extensions').split(",")
+        ignored_extensions = self.config.get('Dependency Inference', 'ignore_extensions').split(",")
 
         commits = self.data['commits']
 
@@ -324,7 +327,7 @@ class Explorer:
         # Look at each commit one by one and record what files are together
         file_relations = {}
         for commit in commit_hashes:
-            # Commit had too many files, not usable for dependency analysis
+            # Commit had too many files, not usable for dependency inference
             if commits[commit]['files'] is None:
                 continue
 

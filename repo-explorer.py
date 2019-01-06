@@ -28,25 +28,57 @@ argparser.add_argument("-c", "--cache_file", help="Cache file location.", type=s
 argparser.add_argument("-C", "--enable_cache", help="Enable caching.", action="store_true")
 argparser.add_argument("-L", "--load_cache", help="Load from cache.", action="store_true")
 argparser.add_argument("-F", "--to_file", help="Write output to file.", action="store_true")
-
-# @todo Use these arguments
-argparser.add_argument("-e", "--ignore_extensions", help="Add ignored file extensions.", type=str)
-argparser.add_argument("-D", "--dependency_analysis", help="Enable dependency analysis.", action="store_true")
-argparser.add_argument("-dt", "--dependency_threshold", help="Set dependency threshold.", type=int)
-argparser.add_argument("-I", "--structure_id", help="Enable structure identification.", action="store_true")
 argparser.add_argument("-T", "--tops", help="Enable top contributor and most changed file.", action="store_true")
+argparser.add_argument("-D", "--dependency_inference", help="Enable dependency inference.", action="store_true")
+argparser.add_argument("-S", "--structure_id", help="Enable structure identification.", action="store_true")
+argparser.add_argument("-dt", "--dependency_threshold", help="Set dependency threshold.", type=int)
+argparser.add_argument("-e", "--ignore_extensions", help="Add ignored file extensions.", type=str)
+
+# @todo More config overrides...
 
 args = argparser.parse_args()
 
 start_time = time.time()
 print("Creating the explorer...")
-explorer = Explorer.Explorer(path=args.repo_path, enable_cache=args.enable_cache)
+explorer = Explorer.Explorer(path=args.repo_path)
 
 print("Loading configurations...")
 explorer.loadConfigs(args.ini_file)
-if args.cache_file is not None:
-    explorer.cache_file = pathlib.Path(args.cache_file)
 
+# Override configs
+print("Performing command line overrides...")
+if args.enable_cache:
+    print("\tEnabling cache...")
+    explorer.setConfig('General', 'enable_cache', 'true')
+
+if args.cache_file is not None:
+    print("\tSetting Caching.cache_file to: %s..." % (args.cache_file))
+    explorer.setConfig('Caching', 'cache_file', args.cache_file)
+
+if args.tops:
+    print("\tEnabling top contributor and most changed file stats...")
+    explorer.setConfig('General', 'top_contributor', 'true')
+    explorer.setConfig('General', 'most_changed', 'true')
+
+if args.dependency_inference:
+    print("\tEnabling dependency inference...")
+    explorer.setConfig('General', 'dependency_inference', 'true')
+
+if args.structure_id:
+    print("\tEnabling structure identifiction...")
+    explorer.setConfig('General', 'structure_location', 'true')
+
+if args.dependency_threshold is not None:
+    print("\tSetting dependency threshold to: %d..." % (args.dependency_threshold))
+    explorer.setConfig('Dependency Inference', 'threshold', str(args.dependency_threshold))
+
+if args.ignore_extensions is not None:
+    print("\tAdding '%s' to the ignored extensions list..." % (args.ignore_extensions))
+    ignored_extensions = explorer.getConfig('Dependency Inference', 'ignore_extensions')
+    ignored_extensions += ",%s" % (args.ignore_extensions)
+    print("\t\tThe final list is as follows:")
+    for extension in ignored_extensions.split(","):
+        print("\t\t * %s" % (extension))
 print("Collecting data...")
 explorer.collectData(args.load_cache)
 print("\tData collection completed in %d seconds." % (time.time()-start_time))
