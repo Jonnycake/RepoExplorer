@@ -185,7 +185,17 @@ class Explorer:
             tmp_commit_data['files'] = self.getDiffStats(commit, last_commit)
             commits[str(commit)] = tmp_commit_data
             last_commit = commit
-            data['authors'][commit.author.name] = 1 if commit.author.name not in data['authors'] else data['authors'][commit.author.name] + 1
+            if commit.author.name not in data['authors']:
+                data['authors'][commit.author.name] = {"commits": 0}
+            data['authors'][commit.author.name]['commits'] += 1
+            if self.config.getboolean('Data Collection', 'impact_stats'):
+                if "impact" not in data['authors'][commit.author.name]:
+                    data['authors'][commit.author.name]['impact'] = 0
+
+                if tmp_commit_data['files'] is not None:
+                    for file in tmp_commit_data['files']:
+                        data['authors'][commit.author.name]['impact'] += tmp_commit_data['files'][file]['add'] + tmp_commit_data['files'][file]['del']
+
 
             if time.time() - a_time > 60:
                 print("\t\tMinutely Update: Commits Complete: %d / %d (~%d%%)" % (commits_completed, total_commits, (commits_completed/total_commits*100)))
@@ -225,7 +235,8 @@ class Explorer:
         return most_changed[:int(self.config.get('Most Changed', 'limit'))]
 
     def findTopContributor(self):
-        sorted_authors = sorted(self.data['authors'].keys(), key=lambda k: self.data['authors'][k], reverse=True)
+        key = "impact" if self.config.get('Top Contributor', 'type') == "impact" and self.config.getboolean('Data Collection', 'impact_stats') else "commits"
+        sorted_authors = sorted(self.data['authors'].keys(), key=lambda k: self.data['authors'][k][key], reverse=True)
         top_contributors = []
 
         for author in sorted_authors:
