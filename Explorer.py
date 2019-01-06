@@ -47,16 +47,17 @@ class Explorer:
         self.config = config
         self.cache_file = pathlib.Path("%s/%s" % (self.repo_dir, self.config.get('Caching', 'cache_file')))
 
-    def keepFileStats(self, change):
+    def keepFileStats(self, change, change_info):
         if "files" not in self.data:
             self.data['files'] = {}
 
         if change.change_type == "A" \
           or (change.b_path not in self.data['files'] \
           and change.a_path not in self.data['files']):
-            self.data['files'][change.b_path] = 1
+            self.data['files'][change.b_path] = {}
+            self.data['files'][change.b_path]['commits'] = 1
         elif change.change_type == "M":
-            self.data['files'][change.b_path] += 1
+            self.data['files'][change.b_path]['commits'] += 1
         elif change.change_type == "R":
             # There's a chance that a_path doesn't exist in our data yet....
             # @todo Figure out how/why that happens...
@@ -66,17 +67,23 @@ class Explorer:
                 KeyError: 'framework/vendors/markdown/License.md' """
 
             if change.a_path in self.data['files']:
-                self.data['files'][change.b_path] = self.data['files'][change.a_path] + 1
+                self.data['files'][change.b_path] = {}
+                self.data['files'][change.b_path]['commits'] = self.data['files'][change.a_path]['commits'] + 1
+                if "impact" in self.data['files'][change.a_path]:
+                    self.data['files'][change.b_path]['impact'] = self.data['files'][change.a_path]['impact']
                 del self.data['files'][change.a_path]
             elif change.b_path in self.data['files']:
-                self.data['files'][change.b_path] += 1
+                self.data['files'][change.b_path]['commits'] += 1
             else:
-                self.data['files'][change.b_path] = 1
+                self.data['files'][change.b_path]['commits'] = 1
 
         # Delete should be separate...in case it's a delete and it got set anyways
         if change.change_type == "D":
             del self.data['files'][change.b_path]
-
+        elif change_info['del'] is not None and change_info['add'] is not None:
+            if "impact" not in self.data['files'][change.b_path]:
+                self.data['files'][change.b_path]['impact'] = 0
+            self.data['files'][change.b_path]['impact'] += change_info['add'] + change_info['del']
 
     def collectData(self, from_cache=False):
         """
@@ -117,12 +124,9 @@ class Explorer:
             return None
 
         for change in commit_diff:
-            #if change.b_path in self.data['files']:
-            #    self.data['files'][change.b_path] += 1
-
             files[change.b_path] = {"add": None, "del": None, "type": "A", "diff": None}
             files[change.b_path]['type'] = change.change_type
-            self.keepFileStats(change)
+
             if self.config.getboolean('Data Collection', 'impact_stats'):
                 try:
                     # Probably want to maintain previous path info too...
@@ -147,6 +151,8 @@ class Explorer:
                     # @todo Do something with the error
                     pass
 
+            self.keepFileStats(change, files[change.b_path])
+
         return files
 
     def loadLiveData(self):
@@ -156,9 +162,10 @@ class Explorer:
         commits = {}
         last_commit = git.NULL_TREE
         total_commits = len(list(repo.iter_commits()))
-        complete_update = int(total_commits / 10)
+        complete_update = int(total_commits / 10) or 1
         commits_completed = 0
         a_time = time.time()
+
         for commit in list(repo.iter_commits())[::-1]:
             # Progress updates every ~10%
             if not commits_completed % complete_update:
@@ -208,7 +215,8 @@ class Explorer:
             self.stats['top_contributor'] = self.findTopContributor()
 
     def findMostChanged(self):
-        sorted_files = sorted(self.data['files'].keys(), key=lambda k: self.data['files'][k], reverse=True)
+        key = "impact" if self.config.get('Most Changed', 'type') == "impact" and self.config.getboolean('Data Collection', 'impact_stats') else "commits"
+        sorted_files = sorted(self.data['files'].keys(), key=lambda k: self.data['files'][k][key], reverse=True)
         most_changed = []
 
         for file in sorted_files:
