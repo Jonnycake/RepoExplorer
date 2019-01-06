@@ -29,7 +29,6 @@ class Explorer:
     config = None
     data = {}
     differ = None
-    file = {}
     stats = {}
     structure = {}
 
@@ -49,9 +48,22 @@ class Explorer:
         self.cache_file = pathlib.Path("%s/%s" % (self.repo_dir, self.config.get('Caching', 'cache_file')))
 
     def keepFileStats(self, change):
-        if change.change_type == "A":
-            return
-        return
+        if "files" not in self.data:
+            self.data['files'] = {}
+
+        if change.change_type == "A" \
+          or (change.b_path not in self.data['files'] \
+          and change.a_path not in self.data['files']):
+            self.data['files'][change.b_path] = 1
+        elif change.change_type == "M":
+            self.data['files'][change.b_path] += 1
+        elif change.change_type == "R":
+            self.data['files'][change.b_path] = self.data['files'][change.a_path] + 1
+            del self.data['files'][change.a_path]
+
+        # Delete should be separate...in case it's a delete and it got set anyways
+        if change.change_type == "D":
+            del self.data['files'][change.b_path]
 
 
     def collectData(self, from_cache=False):
@@ -75,6 +87,8 @@ class Explorer:
             print("\tLoading live data...")
             data = self.loadLiveData()
 
+        # @todo Make this not needed....
+        data['files'] = self.data['files']
         self.data = data
 
         if self.cache_enabled:
@@ -102,6 +116,7 @@ class Explorer:
                     # Probably want to maintain previous path info too...
                     files[change.b_path]['add'] = 0
                     files[change.b_path]['del'] = 0
+                    files[change.b_path]['a_path'] = change.a_path
 
                     orig = change.a_blob.data_stream.read().decode('utf-8').splitlines(1)
                     new = change.b_blob.data_stream.read().decode('utf-8').splitlines(1)
@@ -181,7 +196,13 @@ class Explorer:
             self.stats['top_contributor'] = self.findTopContributor()
 
     def findMostChanged(self):
-        pass
+        sorted_files = sorted(self.data['files'].keys(), key=lambda k: self.data['files'][k], reverse=True)
+        most_changed = []
+
+        for file in sorted_files:
+            most_changed.append((file, self.data['files'][file]))
+
+        return most_changed[:int(self.config.get('Most Changed', 'limit'))]
 
     def findTopContributor(self):
         sorted_authors = sorted(self.data['authors'].keys(), key=lambda k: self.data['authors'][k], reverse=True)
@@ -266,9 +287,8 @@ class Explorer:
             ignored_dirs = self.stats['structures']['docs'] \
                 + self.stats['structures']['tests'] \
                 + self.stats['structures']['references']
-            ignored_files = self.stats['structures']['references']
 
-        print("\t\t...maybe ignoring directories: %s" % (", ".join(ignored_dirs)))
+        print("\t\t...ignoring directories/files: %s" % (", ".join(ignored_dirs)))
 
         # Look at each commit one by one and record what files are together
         file_relations = {}
