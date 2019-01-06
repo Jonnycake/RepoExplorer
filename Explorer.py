@@ -58,8 +58,20 @@ class Explorer:
         elif change.change_type == "M":
             self.data['files'][change.b_path] += 1
         elif change.change_type == "R":
-            self.data['files'][change.b_path] = self.data['files'][change.a_path] + 1
-            del self.data['files'][change.a_path]
+            # There's a chance that a_path doesn't exist in our data yet....
+            # @todo Figure out how/why that happens...
+            """
+                yii ....
+                Commits Complete: 5264 / 6581 (~79%)
+                KeyError: 'framework/vendors/markdown/License.md' """
+
+            if change.a_path in self.data['files']:
+                self.data['files'][change.b_path] = self.data['files'][change.a_path] + 1
+                del self.data['files'][change.a_path]
+            elif change.b_path in self.data['files']:
+                self.data['files'][change.b_path] += 1
+            else:
+                self.data['files'][change.b_path] = 1
 
         # Delete should be separate...in case it's a delete and it got set anyways
         if change.change_type == "D":
