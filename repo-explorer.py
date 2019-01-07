@@ -35,6 +35,7 @@ argparser.add_argument("-dt", "--dependency_threshold", help="Set dependency thr
 argparser.add_argument("-e", "--ignore_extensions", help="Add ignored file extensions.", type=str)
 argparser.add_argument("--full_diff", help="Enable full diff storage.", action="store_true")
 argparser.add_argument("-l", "--commit_limit", help="Commit file limmit.", type=int)
+argparser.add_argument("-s", "--structures", help="Structure additions.", type=str)
 
 # @todo More config overrides...
 
@@ -69,6 +70,17 @@ if args.dependency_inference:
 if args.structure_id:
     print("\tEnabling structure identifiction...")
     explorer.setConfig('General', 'structure_location', 'true')
+
+if args.structures:
+    print("\tAdding a list to structures...")
+    structures = args.structures.split(";")
+    for structure in structures:
+        structure_type, value = structure.split(":")
+        orig_value = explorer.getConfig('Structure Location', structure_type)
+        if orig_value is not False:
+            explorer.setConfig('Structure Location', structure_type, "%s,%s" % (orig_value, value))
+        else:
+            print("\t\tWarning: Unknown structure type: %s" % (structure_type))
 
 if args.dependency_threshold is not None:
     print("\tSetting dependency threshold to: %d..." % (args.dependency_threshold))

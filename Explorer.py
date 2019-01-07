@@ -40,7 +40,10 @@ class Explorer:
         self.config.set(config_group, config, value)
 
     def getConfig(self, config_group, config):
-        return self.config.get(config_group, config)
+        if self.config.has_option(config_group, config):
+            return self.config.get(config_group, config)
+        else:
+            return False
 
     def loadConfigs(self, path):
         config = configparser.ConfigParser()
