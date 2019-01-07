@@ -249,6 +249,7 @@ class Explorer:
 
     def findStructures(self):
         # Load the structure location configs
+        config_paths = self.config.get('Structure Location', 'configs').split(',')
         doc_dirs = self.config.get('Structure Location', 'doc_dirs').split(',')
         include_dirs = self.config.get('Structure Location', 'include_dirs').split(',')
         src_dirs = self.config.get('Structure Location', 'src_dirs').split(',')
@@ -256,7 +257,7 @@ class Explorer:
         vendor_dirs = self.config.get('Structure Location', 'vendor_dirs').split(',')
         useful_files = self.config.get('Structure Location', 'useful_files').split(',')
 
-        structures = {'docs': [], 'includes': [], 'sources': [], 'tests': [], 'vendor code': [], 'references': []}
+        structures = {'configs': [], 'docs': [], 'includes': [], 'sources': [], 'tests': [], 'vendor code': [], 'references': []}
         walked = []
 
         # We can probably find structures as we walk....
@@ -283,7 +284,10 @@ class Explorer:
 
         # Then we can continue locating the relevant structures
         for root, dirs, files in non_vendor_paths:
-            # doc, include, src, test & useful_files
+            # configs, doc, include, src, test & useful_files
+            configs = list((set(config_paths) & set(dirs)) | (set(config_paths) & set(files)))
+            structures['configs'] += [os.path.relpath(os.path.join(root, d), self.repo_dir) for d in configs]
+
             docs = list(set(doc_dirs) & set(dirs))
             structures['docs'] += [os.path.relpath(os.path.join(root, d), self.repo_dir) for d in docs]
 
@@ -296,7 +300,7 @@ class Explorer:
             tests = list(set(test_dirs) & set(dirs))
             structures['tests'] += [os.path.relpath(os.path.join(root, d), self.repo_dir) for d in tests]
 
-            references = list(set(useful_files) & set(files))
+            references = list((set(useful_files) & set(files)) | (set(useful_files) & set(dirs)))
             structures['references'] += [os.path.relpath(os.path.join(root, d), self.repo_dir) for d in references]
 
         return structures
@@ -327,7 +331,8 @@ class Explorer:
         if 'structures' in self.stats:
             ignored_dirs = self.stats['structures']['docs'] \
                 + self.stats['structures']['tests'] \
-                + self.stats['structures']['references']
+                + self.stats['structures']['references'] \
+                + self.stats['structures']['configs']
 
         print("\t\t...ignoring directories/files: %s" % (", ".join(ignored_dirs)))
 
