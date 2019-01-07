@@ -215,10 +215,6 @@ class Explorer:
             print("\tFinding structures...")
             self.stats['structures'] = self.findStructures()
 
-        if self.config.getboolean('General', 'dependency_inference'):
-            print("\tInferring dependencies...")
-            self.stats['dependencies'] = self.inferDependencies()
-
         if self.config.getboolean('General', 'most_changed'):
             print("\tFinding most changed file(s)...")
             self.stats['most_changed'] = self.findMostChanged()
@@ -226,6 +222,10 @@ class Explorer:
         if self.config.getboolean('General', 'top_contributor'):
             print("\tFinding top contributor(s)...")
             self.stats['top_contributor'] = self.findTopContributor()
+
+        if self.config.getboolean('General', 'dependency_inference'):
+            print("\tInferring dependencies...")
+            self.stats['dependencies'] = self.inferDependencies()
 
     def findMostChanged(self):
         key = "impact" if self.config.get('Most Changed', 'type') == "impact" and self.config.getboolean('Data Collection', 'impact_stats') else "commits"
@@ -314,6 +314,13 @@ class Explorer:
         ignored_extensions = self.config.get('Dependency Inference', 'ignore_extensions').split(",")
 
         commits = self.data['commits']
+        top_only = False
+        tops = []
+
+        if self.config.get('Dependency Inference', 'analysis_breadth') == "top"\
+          and "most_changed" in self.stats:
+            top_only = True
+            tops = [file_stat[0] for file_stat in self.stats['most_changed']]
 
         ignored_dirs = []
         ignored_files = []
@@ -333,6 +340,9 @@ class Explorer:
 
             # This looks ugly...we can probably simplify it
             for file in commits[commit]['files']:
+                if top_only and file not in tops:
+                    continue
+
                 if file.endswith(tuple(ignored_extensions)):
                     continue
 

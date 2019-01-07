@@ -33,6 +33,8 @@ argparser.add_argument("-D", "--dependency_inference", help="Enable dependency i
 argparser.add_argument("-S", "--structure_id", help="Enable structure identification.", action="store_true")
 argparser.add_argument("-dt", "--dependency_threshold", help="Set dependency threshold.", type=int)
 argparser.add_argument("-e", "--ignore_extensions", help="Add ignored file extensions.", type=str)
+argparser.add_argument("--full_diff", help="Enable full diff storage.", action="store_true")
+argparser.add_argument("-l", "--commit_limit", help="Commit file limmit.", type=int)
 
 # @todo More config overrides...
 
@@ -79,6 +81,15 @@ if args.ignore_extensions is not None:
     print("\t\tThe final list is as follows:")
     for extension in ignored_extensions.split(","):
         print("\t\t * %s" % (extension))
+
+if args.full_diff:
+    print("\tEnabling full diff storage...")
+    explorer.setConfig('Data Collection', 'full_diff', 'true')
+
+if args.commit_limit is not None:
+    print("\tSetting the commit file limit...")
+    explorer.setConfig('Data Collection', 'commit_file_limit', str(args.commit_limit))
+
 print("Collecting data...")
 explorer.collectData(args.load_cache)
 print("\tData collection completed in %d seconds." % (time.time()-start_time))
