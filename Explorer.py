@@ -23,6 +23,7 @@ import os
 import git
 import pprint
 import time
+import llist
 
 class Explorer:
     repo_dir = "."
@@ -31,6 +32,7 @@ class Explorer:
     differ = None
     stats = {}
     structure = {}
+    renames = {}
 
     def __init__(self, path="."):
         self.repo_dir = path
@@ -78,6 +80,14 @@ class Explorer:
                 if "impact" in self.data['files'][change.a_path]:
                     self.data['files'][change.b_path]['impact'] = self.data['files'][change.a_path]['impact']
                 del self.data['files'][change.a_path]
+
+                # Keep track of renames
+                if change.a_path not in self.renames:
+                    self.renames[change.a_path] = llist.sllist([change.a_path, change.b_path])
+                else:
+                    self.renames[change.a_path].append(change.b_path)
+                self.renames[change.b_path] = self.renames[change.a_path]
+
             elif change.b_path in self.data['files']:
                 self.data['files'][change.b_path]['commits'] += 1
             else:
@@ -208,7 +218,7 @@ class Explorer:
                 a_time = time.time()
 
         data['commits'] = commits
-
+        print(self.renames)
         return data
 
     def explore(self):
@@ -308,6 +318,11 @@ class Explorer:
 
         return structures
 
+    def resolveRename(self, file):
+        if file in self.renames:
+            file = self.renames[file].last.value
+        return file
+
     def inferDependencies(self):
         # Get the threshold config value
         threshold = int(self.config.get('Dependency Inference', 'threshold'))
@@ -361,7 +376,11 @@ class Explorer:
                     continue
 
                 if not pathlib.Path(os.path.join(self.repo_dir, file)).exists():
-                    continue
+                    new_file = self.resolveRename(file)
+                    if file != new_file and pathlib.Path(os.path.join(self.repo_dir, new_file)).exists():
+                        file = new_file
+                    else:
+                        continue
 
                 if file not in file_relations:
                     file_relations[file] = {}
@@ -377,7 +396,11 @@ class Explorer:
                         continue
 
                     if not pathlib.Path(os.path.join(self.repo_dir, related_file)).exists():
-                        continue
+                        new_file = self.resolveRename(related_file)
+                        if related_file != new_file and pathlib.Path(os.path.join(self.repo_dir, new_file)).exists():
+                            related_file = new_file
+                        else:
+                            continue
 
                     if related_file == file:
                         continue
