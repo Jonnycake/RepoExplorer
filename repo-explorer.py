@@ -36,6 +36,8 @@ argparser.add_argument("-e", "--ignore_extensions", help="Add ignored file exten
 argparser.add_argument("--full_diff", help="Enable full diff storage.", action="store_true")
 argparser.add_argument("-l", "--commit_limit", help="Commit file limmit.", type=int)
 argparser.add_argument("-s", "--structures", help="Structure additions.", type=str)
+argparser.add_argument("-M", "--impact", help="Enable impact statistics.", action="store_true")
+argparser.add_argument("--config", help="Set another option; Group.Option:value;Group2.Option:value", type=str)
 
 # @todo More config overrides...
 
@@ -101,6 +103,18 @@ if args.full_diff:
 if args.commit_limit is not None:
     print("\tSetting the commit file limit...")
     explorer.setConfig('Data Collection', 'commit_file_limit', str(args.commit_limit))
+
+if args.impact:
+    print("\tEnabling impact statistics...")
+    explorer.setConfig('Data Collection', 'impact_stats', 'true')
+
+if args.config:
+    print("\tSetting misc configurations...")
+    for setting in args.config.split(";"):
+        option, value = setting.split(":")
+        option_group, option = option.split(".")
+        print("\t\tSetting %s in %s to '%s'..." % (option_group, option, value))
+        explorer.setConfig(option_group, option, value)
 
 print("Collecting data...")
 explorer.collectData(args.load_cache)
