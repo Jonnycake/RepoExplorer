@@ -82,6 +82,7 @@ class Explorer:
                 del self.data['files'][change.a_path]
 
                 # Keep track of renames
+                # @todo This should be done outside of data collection so we can work with the cache
                 if change.a_path not in self.renames:
                     self.renames[change.a_path] = llist.sllist([change.a_path, change.b_path])
                 else:
@@ -196,7 +197,7 @@ class Explorer:
             tmp_commit_data = {
                 "author": commit.author.name,
                 "files": {},
-                "date": "unknown"
+                "date": commit.committed_date
             }
             tmp_commit_data['files'] = self.getDiffStats(commit, last_commit)
             commits[str(commit)] = tmp_commit_data
@@ -218,7 +219,7 @@ class Explorer:
                 a_time = time.time()
 
         data['commits'] = commits
-        print(self.renames)
+
         return data
 
     def explore(self):
