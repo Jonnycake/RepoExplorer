@@ -31,7 +31,6 @@ class Explorer:
     data = {}
     differ = None
     stats = {}
-    structure = {}
     renames = {}
 
     def __init__(self, path="."):
@@ -115,7 +114,8 @@ class Explorer:
             print("\tLoading from cache (%s)..." % (cache_path))
             try:
                 with open(cache_path, "r") as f:
-                    data = json.load(f)
+                    json_data = json.load(f)
+                    data, self.renames = self.loadCache(json_data)
             except:
                 # @todo Do something with the error
                 print(sys.exc_info()[0])
@@ -123,14 +123,15 @@ class Explorer:
             print("\tLoading live data...")
             data = self.loadLiveData()
 
-        # @todo Make this not needed....
-        data['files'] = self.data['files']
+            # @todo Make this not needed....
+            data['files'] = self.data['files']
+
         self.data = data
 
         if self.config.getboolean('General', 'enable_cache'):
             print("\tWriting cache file '%s'..." % (cache_path))
             with open(cache_path, "w") as f:
-                f.write(json.dumps(self.data))
+                f.write(json.dumps(self.getCache()))
 
     def getDiffStats(self, commit, last_commit):
         files = {}
@@ -442,3 +443,11 @@ class Explorer:
         basic_stats['last'] = {commit_hashes[-1]: self.data['commits'][commit_hashes[-1]]}
         return basic_stats
 
+    def getCache(self):
+        return {"data": self.data, "renames": {k: list(self.renames[k]) for k in self.renames}, "timestamp": int(time.time())}
+
+    def loadCache(self, cache, force=False):
+        # 60 (seconds) * 60 (minutes) * 24 (hours) = 86,400 seconds = 1 day
+        if (not force) and cache['timestamp'] < time.time() - (int(self.config.get('Caching', 'cache_ttl')) * 86400):
+            raise Exception("Expired cache")
+        return (cache['data'], {k: llist.sllist(cache['renames'][k]) for k in cache['renames']})
