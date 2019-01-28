@@ -24,6 +24,7 @@ import git
 import pprint
 import time
 import llist
+import magic
 
 class Explorer:
     repo_dir = "."
@@ -53,6 +54,13 @@ class Explorer:
 
         # We want to store the cache file in the relevant repo unless directed otherwise
         self.config.set('Caching', 'cache_file', ("%s/%s" % (self.repo_dir, self.config.get('Caching', 'cache_file'))))
+
+    def identifyLanguages(self):
+        # For each file in the repo that is not ignored
+            # Use magic to check file type
+            # Take directory, throw it in languages[file_type]['dirs']
+            # languages[file_type]['file_count'] += 1
+        pass
 
     def keepFileStats(self, change, change_info):
         if "files" not in self.data:
@@ -100,6 +108,26 @@ class Explorer:
             if "impact" not in self.data['files'][change.b_path]:
                 self.data['files'][change.b_path]['impact'] = 0
             self.data['files'][change.b_path]['impact'] += change_info['add'] + change_info['del']
+
+    def doesIgnorePath(self, path):
+        # Ignore particular extensions
+        ignored_extensions = self.config.get('Dependency Inference', 'ignore_extensions').split(",")
+        if path.endswith(tuple(ignored_extensions)):
+            return True
+
+        # Ignore structures
+        ignored_dirs = []
+        if 'structures' in self.stats:
+            ignored_dirs = self.stats['structures']['docs'] \
+                + self.stats['structures']['tests'] \
+                + self.stats['structures']['references'] \
+                + self.stats['structures']['configs']
+
+        for dir in ignored_dirs:
+            if not os.path.relpath(path, dir).startswith(".."):
+                return True
+
+        return False
 
     def collectData(self, from_cache=False):
         """
@@ -334,10 +362,7 @@ class Explorer:
         if self.config.getboolean('Dependency Inference', 'ignore_first_commit'):
             commit_hashes = commit_hashes[1:]
 
-        # Ignore particular extensions
-        ignored_extensions = self.config.get('Dependency Inference', 'ignore_extensions').split(",")
-
-        commits = self.data['commits']
+        # Top vs all dependency inference
         top_only = False
         tops = []
 
@@ -346,15 +371,7 @@ class Explorer:
             top_only = True
             tops = [file_stat[0] for file_stat in self.stats['most_changed']]
 
-        ignored_dirs = []
-        ignored_files = []
-        if 'structures' in self.stats:
-            ignored_dirs = self.stats['structures']['docs'] \
-                + self.stats['structures']['tests'] \
-                + self.stats['structures']['references'] \
-                + self.stats['structures']['configs']
-
-        print("\t\t...ignoring directories/files: %s" % (", ".join(ignored_dirs)))
+        commits = self.data['commits']
 
         # Look at each commit one by one and record what files are together
         file_relations = {}
@@ -368,13 +385,7 @@ class Explorer:
                 if top_only and file not in tops:
                     continue
 
-                if file.endswith(tuple(ignored_extensions)):
-                    continue
-
-                if file.startswith(tuple(ignored_dirs)):
-                    continue
-
-                if file in ignored_files:
+                if self.doesIgnorePath(file):
                     continue
 
                 if not pathlib.Path(os.path.join(self.repo_dir, file)).exists():
@@ -388,13 +399,7 @@ class Explorer:
                     file_relations[file] = {}
 
                 for related_file in commits[commit]['files']:
-                    if related_file.endswith(tuple(ignored_extensions)):
-                        continue
-
-                    if related_file.startswith(tuple(ignored_dirs)):
-                        continue
-
-                    if related_file in ignored_files:
+                    if self.doesIgnorePath(related_file):
                         continue
 
                     if not pathlib.Path(os.path.join(self.repo_dir, related_file)).exists():
