@@ -444,8 +444,8 @@ class Explorer:
         basic_stats = {"total": 0, "first":{}, "last": {}}
         commit_hashes = list(self.data['commits'].keys())
         basic_stats['total'] = len(commit_hashes)
-        basic_stats['first'] = {commit_hashes[0]: self.data['commits'][commit_hashes[0]]}
-        basic_stats['last'] = {commit_hashes[-1]: self.data['commits'][commit_hashes[-1]]}
+        basic_stats['first'] = {commit_hashes[-1]: self.data['commits'][commit_hashes[0]]}
+        basic_stats['last'] = {commit_hashes[0]: self.data['commits'][commit_hashes[-1]]}
         return basic_stats
 
     def getCache(self):
